@@ -1,0 +1,101 @@
+#This code is meant to read the water flow pulses and calculate the millitres => litres that have 
+#been currently read and also compute the total litres that have passed through since the sensor started reading.
+#These readings are stored in an excel sheet that needs to be created daily on the desktop.
+#The readings documented are those of a pulse greater than 50. However, the total litres of the water
+#that passed through is documented.
+#The code was revised for those that may not want to use the readily available code that runs on Arduino
+#NOTE: this code was specifically created to run on a rasperry pi and for YF-B6 Flow Sensor for water readings
+#make sure to make pre-requisite of pigpio installations depending on the python version
+
+
+from csv import writer
+from pathlib import Path
+from datetime import datetime, timedelta
+import time, datetime
+import pigpio
+
+def readings():
+    List=[Now_Time, str(pulse), str(flowMillilitres), str(Litres), str(totalLitres)]
+    return List
+
+#to write on the file if the csv file is already there
+def appendToFile():
+    with open(path_to_file,'a+',newline='') as csvfile:
+        writer_object = writer(csvfile)
+        writer_object.writerow(readings())
+        csvfile.close()
+        print('Reading successfully added')
+ 
+#to create a csv file and write the readings into it
+def writingToFile():
+    csvfile=open(path_to_file,'w+',newline='')
+    print('The file '+path_to_file+' has been created')
+    writer_object = writer(csvfile)
+    Headings = ['Time','Pulse Rate','Flow in Millilitres','Flow in Litres', 'Total flow(L)']
+    writer_object.writerow(Headings)
+    writer_object.writerow(readings())
+    csvfile.close()
+    print('Reading successfully added')
+
+#declared variables
+Current_Date = datetime.datetime.today().strftime ('%d-%b-%Y')
+Now_Time = datetime.datetime.today().strftime (' %H:%M:%S')
+intervalTime = 60
+triggerTime = datetime.datetime.today() - timedelta(days=1)
+triggerMin    = 50
+pulse     = 0
+flowGpio      = 4
+totalLitres = 0
+flowMillilitres = 0
+Litres = 0
+
+#to get make our ports accept readings from the YF-B6 flow sensor
+pi = pigpio.pi()
+pi.set_mode(flowGpio, pigpio.INPUT)
+pi.set_pull_up_down(flowGpio, pigpio.PUD_DOWN)
+flowCallback = pi.callback(flowGpio, pigpio.FALLING_EDGE)
+oldCount = 0
+
+#main function of the code
+while True:
+    #to start reading the pulses from the sensor 
+    time.sleep(intervalTime)
+    count = flowCallback.tally()
+    pulse = count - oldCount
+    
+    #computation of the variables we want to record
+    if(pulse !=0):
+        Litres = (pulse / (6.6*60)) + 0.1
+        #0.1 is the scale factor to reach a desired reading
+        #60 here is the seconds taken to wait before reading so it varies with the timedelta() time below
+        totalLitres += Litres
+        flowMillilitres = Litres * 1000
+        print('Pulse: '+str(pulse)+' Millilitres:'+str(flowMillilitres)+' Litres are:'+str(Litres)+' Total L:'+str(totalLitres))
+    else:
+        print('Pulse: '+str(pulse)+' Millilitres:'+str(flowMillilitres)+' Litres are:'+str(Litres)+' Total L:'+str(totalLitres))
+    
+    #recording info on a csv file after a minute....this can change according to your preferences
+    timeLapse = datetime.datetime.now() - timedelta(minutes=1)
+    if((pulse > triggerMin) & (triggerTime < timeLapse)):
+        triggerTime = datetime.datetime.today()
+        path_to_file = str(Current_Date) +'_WaterSeconds'+'.csv'
+        path = Path(path_to_file)
+        if path.is_file():
+            print('The file '+path_to_file+' exists')
+            appendToFile()
+        else:
+            writingToFile()
+    
+    #the following need to be reset otherwise they will not change    
+    updatedNow_Time = datetime.datetime.today().strftime (' %H:%M:%S')
+    Now_Time = updatedNow_Time
+    updatedCurrent_Date = datetime.datetime.today().strftime ('%d-%b-%Y')
+    Current_Date = updatedCurrent_Date
+    updatedtriggerTime = datetime.datetime.today()
+    triggerTime = updatedtriggerTime
+    oldCount = count
+    pulse = 0
+    Litres = 0
+    flowMillilitres = 0
+
+pi.stop()
